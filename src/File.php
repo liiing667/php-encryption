@@ -211,9 +211,7 @@ final class File
      */
     private static function encryptFileInternal($inputFilename, $outputFilename, KeyOrPassword $secret)
     {
-        if (file_exists($inputFilename) && file_exists($outputFilename) && realpath($inputFilename) === realpath($outputFilename)) {
-            throw new Ex\IOException('Input and output filenames must be different.');
-        }
+        self::assertFilesAreDifferent($inputFilename, $outputFilename);
 
         /* Open the input file. */
         self::removePHPUnitErrorHandler();
@@ -284,9 +282,7 @@ final class File
      */
     private static function decryptFileInternal($inputFilename, $outputFilename, KeyOrPassword $secret)
     {
-        if (file_exists($inputFilename) && file_exists($outputFilename) && realpath($inputFilename) === realpath($outputFilename)) {
-            throw new Ex\IOException('Input and output filenames must be different.');
-        }
+        self::assertFilesAreDifferent($inputFilename, $outputFilename);
 
         /* Open the input file. */
         self::removePHPUnitErrorHandler();
@@ -787,6 +783,46 @@ final class File
             $remaining -= $written;
         }
         return $num_bytes;
+    }
+
+    /**
+     * Ensures the input and output paths do not refer to the same file.
+     *
+     * The decision is based on the actual file identity rather than the path
+     * strings, so hard links, symbolic links, and case-insensitive path
+     * aliases pointing at the input file are rejected. A non-existent output
+     * file is left untouched so it can be created normally.
+     *
+     * @param string $inputFilename
+     * @param string $outputFilename
+     * @return void
+     *
+     * @throws Ex\IOException
+     */
+    private static function assertFilesAreDifferent($inputFilename, $outputFilename)
+    {
+        if (!\file_exists($outputFilename)) {
+            return;
+        }
+
+        /* realpath() resolves symbolic links and case-insensitive aliases. */
+        $inputRealPath  = \realpath($inputFilename);
+        $outputRealPath = \realpath($outputFilename);
+        if ($inputRealPath !== false && $outputRealPath !== false
+            && $inputRealPath === $outputRealPath) {
+            throw new Ex\IOException('Input and output filenames must be different.');
+        }
+
+        /* Hard links share the same underlying file even though their
+         * realpath() strings differ, so compare the device and inode. */
+        $inputStat  = @\stat($inputFilename);
+        $outputStat = @\stat($outputFilename);
+        if (\is_array($inputStat) && \is_array($outputStat)
+            && !empty($inputStat['ino']) && !empty($outputStat['ino'])
+            && (int) $inputStat['dev'] === (int) $outputStat['dev']
+            && (int) $inputStat['ino'] === (int) $outputStat['ino']) {
+            throw new Ex\IOException('Input and output filenames must be different.');
+        }
     }
 
     /**
